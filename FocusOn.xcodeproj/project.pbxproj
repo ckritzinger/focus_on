@@ -16,7 +16,6 @@
 		AA000007 /* TaskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100007 /* TaskStore.swift */; };
 		AA000008 /* CSVLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100008 /* CSVLogger.swift */; };
 		AA000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA100009 /* Assets.xcassets */; };
-		AA00000A /* LogPastSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10000B /* LogPastSessionView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,7 +29,6 @@
 		AA100008 /* CSVLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSVLogger.swift; sourceTree = "<group>"; };
 		AA100009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA10000A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		AA10000B /* LogPastSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogPastSessionView.swift; sourceTree = "<group>"; };
 		AA200001 /* FocusOn.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FocusOn.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -58,7 +56,6 @@
 				AA100008 /* CSVLogger.swift */,
 				AA100009 /* Assets.xcassets */,
 				AA10000A /* Info.plist */,
-				AA10000B /* LogPastSessionView.swift */,
 			);
 			path = FocusOn;
 			sourceTree = "<group>";
@@ -156,7 +153,6 @@
 				AA000006 /* TaskSelectionView.swift in Sources */,
 				AA000007 /* TaskStore.swift in Sources */,
 				AA000008 /* CSVLogger.swift in Sources */,
-				AA00000A /* LogPastSessionView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

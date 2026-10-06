@@ -136,10 +136,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 pop?.close()
                 self?.showTaskSelection(completingPrevious: false)
             },
-            onLogPastSession: { [weak self, weak pop] in
-                pop?.close()
-                self?.showLogPastSession()
-            },
             onChangeDataDirectory: { [weak self, weak pop] in
                 pop?.close()
                 self?.pickDataDirectory()
@@ -171,6 +167,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 pop?.close()
                 self?.store.startTask(name, project: project, completingPrevious: completing)
             },
+            onLogPast: { [weak self, weak pop] project, task, from, to, completed in
+                pop?.close()
+                self?.store.logPastSession(project: project, task: task, from: from, to: to, completed: completed)
+            },
             onCancel: { [weak pop] in
                 pop?.close()
             },
@@ -179,34 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         .environmentObject(store)
 
         pop.contentViewController = NSHostingController(rootView: view)
-        pop.contentSize = NSSize(width: 280, height: 320)
-
-        if let contentView = panel.contentView {
-            pop.show(relativeTo: contentView.bounds, of: contentView, preferredEdge: .maxY)
-        }
-        popover = pop
-    }
-
-    func showLogPastSession() {
-        dismissPopover()
-
-        let pop = NSPopover()
-        pop.behavior = .transient
-        pop.animates = true
-
-        let view = LogPastSessionView(
-            onSave: { [weak self, weak pop] project, task, from, to, completed in
-                pop?.close()
-                self?.store.logPastSession(project: project, task: task, from: from, to: to, completed: completed)
-            },
-            onCancel: { [weak pop] in
-                pop?.close()
-            }
-        )
-        .environmentObject(store)
-
-        pop.contentViewController = NSHostingController(rootView: view)
-        pop.contentSize = NSSize(width: 300, height: 300)
+        pop.contentSize = NSSize(width: 280, height: 360)
 
         if let contentView = panel.contentView {
             pop.show(relativeTo: contentView.bounds, of: contentView, preferredEdge: .maxY)

@@ -3,6 +3,7 @@ import SwiftUI
 struct TaskSelectionView: View {
     @EnvironmentObject var store: TaskStore
     var onSelect: (String, String, Bool) -> Void   // (taskName, projectSlug, completingPrevious)
+    var onLogPast: (String, String, Date, Date, Bool) -> Void  // (projectSlug, taskName, from, to, completed)
     var onCancel: () -> Void
     var completingPrevious: Bool
 
@@ -10,6 +11,17 @@ struct TaskSelectionView: View {
     @State private var visibleRecentTasks: [TaskStore.RecentTask] = []
     @State private var newTaskText: String = ""
     @FocusState private var fieldFocused: Bool
+
+    // The New task row's From/To pickers double as the old "Log past
+    // session" popover, folded in here instead of being a separate menu
+    // item — that popover was flaky (see LogPastSessionView's removal).
+    // Both default to "now", which is indistinguishable from "untouched";
+    // hasEditedTimes is the actual signal for "the user wants to backdate
+    // this, not start it live", set the moment either picker changes.
+    @State private var from: Date = Date()
+    @State private var to: Date = Date()
+    @State private var pastCompleted: Bool = true
+    @State private var hasEditedTimes: Bool = false
 
     private let formatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -94,17 +106,53 @@ struct TaskSelectionView: View {
                 Divider()
             }
 
-            HStack(spacing: 6) {
-                TextField("New task…", text: $newTaskText)
-                    .textFieldStyle(.plain)
-                    .font(.callout)
-                    .focused($fieldFocused)
-                    .onSubmit { commitNewTask() }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    TextField("New task…", text: $newTaskText)
+                        .textFieldStyle(.plain)
+                        .font(.callout)
+                        .focused($fieldFocused)
+                        .onSubmit { commitNewTask() }
 
-                Button("Start", action: commitNewTask)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(newTaskText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button(hasEditedTimes ? "Log" : "Start", action: commitNewTask)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(newTaskText.trimmingCharacters(in: .whitespaces).isEmpty || (hasEditedTimes && to <= from))
+                }
+
+                HStack(spacing: 6) {
+                    Text("From")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .frame(width: 28, alignment: .leading)
+                    DatePicker("", selection: $from)
+                        .labelsHidden()
+                        .font(.caption2)
+                        .onChange(of: from) { _ in hasEditedTimes = true }
+                    Spacer()
+                }
+                HStack(spacing: 6) {
+                    Text("To")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .frame(width: 28, alignment: .leading)
+                    DatePicker("", selection: $to)
+                        .labelsHidden()
+                        .font(.caption2)
+                        .onChange(of: to) { _ in hasEditedTimes = true }
+                    Spacer()
+                    if hasEditedTimes {
+                        Toggle("Done", isOn: $pastCompleted)
+                            .toggleStyle(.checkbox)
+                            .font(.caption2)
+                    }
+                }
+
+                if hasEditedTimes && to <= from {
+                    Text("To must be after From")
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -132,6 +180,11 @@ struct TaskSelectionView: View {
     private func commitNewTask() {
         let name = newTaskText.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        onSelect(name, selectedProject, completingPrevious)
+        if hasEditedTimes {
+            guard to > from else { return }
+            onLogPast(selectedProject, name, from, to, pastCompleted)
+        } else {
+            onSelect(name, selectedProject, completingPrevious)
+        }
     }
 }

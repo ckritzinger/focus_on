@@ -9,7 +9,7 @@ This is additive to v1. Everything in `spec.md` about the floating widget's wind
 ### Goals
 
 - Replace Harvest for one freelancer (Carl), tracking time against clients/projects and generating invoice PDFs.
-- **Strict split**: the widget is *only* about logging time — live tracking plus backdated manual entries, nothing else. The CLI is *only* about client/project config and turning logged time into invoices. The widget never knows about rates, clients, or invoices; the CLI never writes `task_log.csv`.
+- **Strict split**: the widget is *only* about logging time — live tracking plus backdated manual entries, nothing else. The CLI is *only* about client/project config and turning logged time into invoices. The widget never knows about rates, clients, or invoices. The one deliberate exception: `focuson log` (see "CLI manual entry" below) also writes `task_log.csv`, as a flake-resistant alternative to the widget's own "Log past session" form, in the same format and under the same open-session invariant.
 - Keep everything as plain text files in a git repo — diffable, greppable, no server, no database file to corrupt.
 
 ### Non-goals
@@ -26,7 +26,7 @@ This is additive to v1. Everything in `spec.md` about the floating widget's wind
 Two components:
 
 1. **FocusOn.app** (Swift, unchanged tech stack from v1) — the floating widget + menu bar tracker. Only job: log time. Gains a project picker, a "Log past session" manual-entry action, and awareness of a *data directory* instead of a single log file. Never touches `manifest.toml`, rates, or invoices.
-2. **`focuson` CLI** (Go, using Bubble Tea for any interactive views) — new. Only job: client/project config and turning logged time into invoices. Owns client/project management, invoice generation, PDF rendering, and git sync. Reads `task_log.csv`/`invoiced.csv` with a plain `encoding/csv`-based reader (`internal/tasklog`) and filters/joins in Go — no DuckDB, no separate database file. (DuckDB was the original plan for this, but by the time invoice generation was built, `internal/tasklog` already existed for the startup integrity check and fully covers what's needed — filter + sum over a few hundred rows doesn't need a query engine, and skipping it avoids a CGO dependency for zero benefit at this data scale. It's still a reasonable option later for a cross-project glob report like `focuson status`, if one gets built.) Never writes `task_log.csv`.
+2. **`focuson` CLI** (Go, using Bubble Tea for any interactive views) — new. Only job: client/project config and turning logged time into invoices. Owns client/project management, invoice generation, PDF rendering, and git sync. Reads `task_log.csv`/`invoiced.csv` with a plain `encoding/csv`-based reader (`internal/tasklog`) and filters/joins in Go — no DuckDB, no separate database file. (DuckDB was the original plan for this, but by the time invoice generation was built, `internal/tasklog` already existed for the startup integrity check and fully covers what's needed — filter + sum over a few hundred rows doesn't need a query engine, and skipping it avoids a CGO dependency for zero benefit at this data scale. It's still a reasonable option later for a cross-project glob report like `focuson status`, if one gets built.) Otherwise never writes `task_log.csv` — `focuson log` (flags or TUI "Log Time") is the sole exception, see "CLI manual entry" below.
 
 Both components read/write the same **data directory**, which is its own git repository, separate from the FocusOn app source repo.
 
@@ -55,7 +55,7 @@ Both components read/write the same **data directory**, which is its own git rep
 
 - The directory location is user-chosen (see Widget Changes) and stored once; nothing hardcodes `~/focuson-data`.
 - Each project gets its own subdirectory under `projects/`, named by its slug. The log file inside is **always** named `task_log.csv` — no per-project filename configuration. This leaves room to put other project-scoped files (e.g. exported reports) alongside it later without a renaming scheme.
-- `manifest.toml` and `invoices/*.toml` are the only files the CLI writes to directly. The widget only ever appends to a `task_log.csv` and only ever reads `manifest.toml` (never writes it).
+- `manifest.toml` and `invoices/*.toml` are the only files the CLI writes to directly, plus `task_log.csv` via `focuson log` (see "CLI manual entry" below). The widget only ever appends to a `task_log.csv` and only ever reads `manifest.toml` (never writes it).
 
 ---
 
@@ -89,7 +89,7 @@ Net effect: a finished session appears as two CSV rows sharing one UUID — one 
 
 ### Manual / post-hoc entries
 
-For time you forgot to track live: a **widget** action (see Widget Changes → "Log past session") writes a **single row** directly with `uuid`, `task`, `from`, `to`, and `completed` all set at once — there's no "open" phase to pair, so no second row is written. This lives in the widget, not the CLI: it's just another append to `task_log.csv`, no billing logic involved, and the widget already owns the project list, `CSVLogger`, and UUID generation needed to do it. Consequence: the CLI never writes `task_log.csv` at all — only the widget does (live tracking and manual entry alike). The CLI only writes `invoiced.csv` and `invoices/*.toml`.
+For time you forgot to track live: a **widget** action (see Widget Changes → "Log past session") writes a **single row** directly with `uuid`, `task`, `from`, `to`, and `completed` all set at once — there's no "open" phase to pair, so no second row is written. This lives in the widget, not the CLI: it's just another append to `task_log.csv`, no billing logic involved, and the widget already owns the project list, `CSVLogger`, and UUID generation needed to do it. Historically the CLI never wrote `task_log.csv` at all — only the widget did (live tracking and manual entry alike), with the CLI writing only `invoiced.csv` and `invoices/*.toml`. `focuson log` (see "CLI manual entry" further down) is now a second, deliberate manual-entry path with the same row shape, added because the widget's form above turned out to be flaky in practice.
 
 ### Startup data-integrity check
 
@@ -313,15 +313,26 @@ v1 let you pick an arbitrary CSV file path (`CSVLogger.setFilePath`, exposed as 
 
 ### Log past session (manual / post-hoc entry)
 
-A new action in the widget's action popover — "🕒 Log past session" — alongside Complete/Change/Quit, for time you forgot to start the timer for. Opens a small sheet:
+**v2.1 revision**: this used to be a separate action in the widget's action popover ("🕒 Log past session", its own sheet) — removed because that popover is an `NSPopover` on a `.nonactivatingPanel`, and its `TextField` reliably failed to take keyboard focus (typed input fell through to whatever app was last active). `TaskSelectionView` had already hit and worked around the same focus bug for its own text field (see its `onAppear`'s deferred `@FocusState` assignment); `LogPastSessionView` never got that fix, and rather than patch it in twice, the whole flaky form was folded into `TaskSelectionView` instead of being fixed in place:
 
-- Project picker (same directory-listing source as the task-selection UI's picker).
-- Task name (text field).
-- From / To (date-and-time pickers; default `to` = now, `from` = one hour before).
-- Completed toggle.
-- Save button — validates `to > from`, generates a fresh UUID, and calls `CSVLogger.appendRow` **once**, directly, with all fields set. No pairing, no interaction with `currentTaskName`/`currentTaskStartedAt`/`currentTaskUUID` — this is a standalone append to whichever project's `task_log.csv` was picked, entirely independent of whatever task (if any) is currently active.
+- The "New task…" row (task-selection UI, same screen used to start a task normally) gained an always-visible From/To date-and-time picker row directly below it, plus a "Done" completed-checkbox that only appears once those pickers have been touched.
+- Both default to "now" on open, which looks identical to "untouched" — `TaskSelectionView` tracks a separate `hasEditedTimes` flag, set the instant either picker's value actually changes, to distinguish the two.
+- `hasEditedTimes == false` at submit time → the normal live-start path (`onSelect` → `TaskStore.startTask`), exactly as before this change.
+- `hasEditedTimes == true` → a new `onLogPast` callback (`TaskStore.logPastSession`) instead: validates `to > from`, generates a fresh UUID, and calls `CSVLogger.appendRow` **once**, directly, with all fields set. No pairing, no interaction with `currentTaskName`/`currentTaskStartedAt`/`currentTaskUUID` — a standalone append to whichever project's `task_log.csv` was picked, independent of whatever task (if any) is currently active. The button label switches from "Start" to "Log" once `hasEditedTimes` is true, as the only other visible cue.
+- This only applies to the new-task text field, not to picking an existing recent task from the list above it — recent-task rows still single-click straight into a live start, unchanged.
+- Known consequence of removing the standalone popover action: there's no longer a way to log a one-off backdated entry while a task is actively being tracked live without going through "Change task" / "Complete task" first — both of which end the current live session regardless (`startTask` always closes out whatever was running). `focuson log` (below) doesn't have this limitation, since it isn't gated behind the live-tracking UI at all.
 
-This is the only place besides live tracking that ever writes to `task_log.csv` — the CLI never does. Keeping both write paths in the same codebase (same `CSVLogger`, same quoting/formatting) means there's exactly one implementation of "what a valid row looks like."
+This is the widget's only place besides live tracking that writes to `task_log.csv`. Keeping both write paths in the same codebase (same `CSVLogger`, same quoting/formatting) means there's exactly one implementation of "what a valid row looks like" on the widget side.
+
+### CLI manual entry (`focuson log`)
+
+The SwiftUI past-session entry (above) was flaky enough in practice that it's also reachable from the CLI, as `internal/tasklog.LogSession` — a second implementation of "what a valid row looks like," this time on the Go side, kept format-compatible by construction (same CSV shape, same RFC3339-UTC timestamps, same quoting rule) rather than by sharing code across languages.
+
+- **Flags**: `focuson log --project <slug> --task "<text>" --from <time> [--to <time>] [--completed=false]`. `--from`/`--to` accept `HH:MM` (today), `"YYYY-MM-DD HH:MM"`, a duration relative to now (`-2h`, `-90m`), or a full RFC3339 timestamp; `--to` defaults to now; `--completed` defaults to true.
+- **TUI**: main menu → "Log Time" → pick a project (from `manifest.toml`, like every other CLI project picker) → the same fields as a small form.
+- **Validation**: the project slug must exist in `manifest.toml` and already have a `projects/<slug>/` directory (no silent directory creation). `to` must be after `from`.
+- **Open-session guard**: if the project's `task_log.csv` last row has no `to` yet — the one case the startup integrity check (below) trusts to mean "a session is actively being tracked right now" — `focuson log` refuses to write at all, rather than risk burying a real in-progress widget session under a backdated row. Read-then-write happens under one `flock`, so concurrent `focuson log` runs can't race each other into both passing the check; this doesn't (and can't) guard against the widget's own unlocked append landing mid-write.
+- **No auto-sync**: like every other write path here, committing to git is a separate, explicit `focuson sync` (or the daily cron job) — logging time doesn't push anything by itself.
 
 ---
 

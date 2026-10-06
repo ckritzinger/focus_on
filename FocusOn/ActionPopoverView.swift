@@ -6,7 +6,6 @@ struct ActionPopoverView: View {
     var onCompleteTask: () -> Void
     var onPauseTask: () -> Void
     var onChangeTask: () -> Void
-    var onLogPastSession: () -> Void
     var onChangeDataDirectory: () -> Void
     var onQuit: () -> Void
 
@@ -42,16 +41,6 @@ struct ActionPopoverView: View {
 
                 Divider().padding(.vertical, 4)
             }
-
-            Button(action: onLogPastSession) {
-                Label("Log past session", systemImage: "clock.arrow.circlepath")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            Divider().padding(.vertical, 4)
 
             Toggle(isOn: $launchAtLogin) {
                 Text("Launch at login")
