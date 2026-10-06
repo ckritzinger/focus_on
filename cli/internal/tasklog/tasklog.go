@@ -1,6 +1,9 @@
-// Package tasklog reads task_log.csv — the widget-owned, append-only log of
-// task sessions (see spec_v2.md, "CSV Schema"). The CLI never writes this
-// file; it only ever reads it.
+// Package tasklog reads (and, via `focuson log`, writes) task_log.csv — the
+// append-only log of task sessions (see spec_v2.md, "CSV Schema"). Writing
+// was historically widget-only; LogSession in write.go is the one
+// deliberate exception, added as a flake-resistant alternative to the
+// widget's own manual-entry form, and it stays format- and
+// invariant-compatible with the widget's own writer (see write.go).
 package tasklog
 
 import (
@@ -39,10 +42,18 @@ func ReadRows(path string) ([]Row, error) {
 	}
 	defer f.Close()
 
-	r := csv.NewReader(f)
-	r.FieldsPerRecord = -1
+	return parseRows(f, path)
+}
 
-	if _, err := r.Read(); err != nil { // header
+// parseRows does the actual parsing, over any io.Reader positioned at the
+// start of a task_log.csv — split out of ReadRows so LogSession (write.go)
+// can read the current contents of an already-open, already-locked file
+// without a second, racy open-by-path.
+func parseRows(r io.Reader, path string) ([]Row, error) {
+	cr := csv.NewReader(r)
+	cr.FieldsPerRecord = -1
+
+	if _, err := cr.Read(); err != nil { // header
 		if err == io.EOF {
 			return nil, nil
 		}
@@ -52,7 +63,7 @@ func ReadRows(path string) ([]Row, error) {
 	var rows []Row
 	line := 1
 	for {
-		fields, err := r.Read()
+		fields, err := cr.Read()
 		line++
 		if err == io.EOF {
 			break

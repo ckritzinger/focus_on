@@ -70,9 +70,57 @@ func run(args []string) error {
 		return runSync(cfg.DataDir)
 	case "invoice":
 		return runInvoice(cfg.DataDir, args[1:])
+	case "log":
+		return runLog(cfg.DataDir, args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (try: sync, invoice generate, invoice set-last, cron install, cron uninstall)", args[0])
+		return fmt.Errorf("unknown command %q (try: log, sync, invoice generate, invoice set-last, cron install, cron uninstall)", args[0])
 	}
+}
+
+// runLog is the scripting/cron-friendly counterpart to the TUI's "Log Time"
+// screen (internal/tui/log.go) — both are thin wrappers over
+// tasklog.LogSession, added as a flake-resistant alternative to the
+// widget's own "Log past session" form (spec_v2.md).
+func runLog(dataDir string, args []string) error {
+	fs := flag.NewFlagSet("log", flag.ContinueOnError)
+	project := fs.String("project", "", "project slug (required)")
+	task := fs.String("task", "", "task description (required)")
+	from := fs.String("from", "", `session start — HH:MM, "YYYY-MM-DD HH:MM", or -2h/-90m relative to now (required)`)
+	to := fs.String("to", "", "session end — same formats as --from; blank = now")
+	completed := fs.Bool("completed", true, "mark the session completed")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *project == "" || *task == "" || *from == "" {
+		return fmt.Errorf("--project, --task, and --from are required")
+	}
+
+	man, err := manifest.Load(dataDir)
+	if err != nil {
+		return err
+	}
+	if _, ok := man.FindProject(*project); !ok {
+		return fmt.Errorf("unknown project %q", *project)
+	}
+
+	now := time.Now()
+	fromT, err := tasklog.ParseTime(*from, now)
+	if err != nil {
+		return fmt.Errorf("--from: %w", err)
+	}
+	toT := now
+	if *to != "" {
+		toT, err = tasklog.ParseTime(*to, now)
+		if err != nil {
+			return fmt.Errorf("--to: %w", err)
+		}
+	}
+
+	if err := tasklog.LogSession(dataDir, *project, *task, fromT, toT, *completed); err != nil {
+		return err
+	}
+	fmt.Printf("logged %s: %s -> %s  %q\n", *project, fromT.Format("2006-01-02 15:04"), toT.Format("15:04"), *task)
+	return nil
 }
 
 func runSync(dataDir string) error {

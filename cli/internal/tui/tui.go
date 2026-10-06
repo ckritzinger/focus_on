@@ -35,6 +35,8 @@ const (
 	screenInvoiceSetLast
 	screenInvoiceDetail
 	screenInvoiceRecon
+	screenLogProjectPicker
+	screenLogForm
 	screenSync
 	screenPlaceholder
 )
@@ -46,7 +48,7 @@ var (
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 )
 
-var menuItems = []string{"Business", "Clients", "Projects", "Invoices", "Sync", "Quit"}
+var menuItems = []string{"Business", "Clients", "Projects", "Invoices", "Log Time", "Sync", "Quit"}
 
 const addNewLabel = "+ Add new"
 
@@ -88,6 +90,11 @@ type Model struct {
 	invoiceDetail         invoicing.Invoice
 	invoiceReconIssues    []invoicing.ReconIssue
 	invoiceReconErr       error
+
+	logProjectSlugs  []string
+	logProjectCursor int
+	logProject       string
+	logForm          form
 
 	syncStatusLines []string
 	syncErr         error
@@ -155,6 +162,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateInvoiceDetail(msg)
 		case screenInvoiceRecon:
 			return m.updateInvoiceRecon(msg)
+		case screenLogProjectPicker:
+			return m.updateLogProjectPicker(msg)
+		case screenLogForm:
+			return m.updateLogForm(msg)
 		case screenSync:
 			return m.updateSync(msg)
 		case screenPlaceholder:
@@ -218,6 +229,8 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.enterProjectsList()
 		case "Invoices":
 			return m.enterInvoicesList()
+		case "Log Time":
+			return m.enterLogProjectPicker()
 		case "Sync":
 			return m.enterSync()
 		default:
@@ -279,6 +292,10 @@ func (m Model) View() string {
 		return m.viewInvoiceDetail()
 	case screenInvoiceRecon:
 		return m.viewInvoiceRecon()
+	case screenLogProjectPicker:
+		return m.viewLogProjectPicker()
+	case screenLogForm:
+		return m.logForm.View()
 	case screenSync:
 		return m.viewSync()
 	case screenPlaceholder:
