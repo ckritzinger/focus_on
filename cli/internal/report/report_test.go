@@ -31,3 +31,17 @@ func TestWeekHours(t *testing.T) {
 		t.Fatalf("unexpected hours %v", hours)
 	}
 }
+
+func TestLatestPerSessionKeepsClosedRow(t *testing.T) {
+	from := time.Date(2026, 10, 19, 9, 0, 0, 0, time.Local)
+	to := from.Add(time.Hour)
+	rows := []tasklog.Row{
+		{UUID: "a", From: from},
+		{UUID: "b", From: from},
+		{UUID: "a", From: from, To: &to},
+	}
+	got := latestPerSession(rows)
+	if len(got) != 2 || got[0].To == nil || got[1].To != nil {
+		t.Fatalf("unexpected %+v", got)
+	}
+}

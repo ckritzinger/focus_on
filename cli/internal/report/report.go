@@ -26,6 +26,23 @@ func WeekStart(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day()-offset, 0, 0, 0, 0, time.Local)
 }
 
+// latestPerSession collapses the append-only log to one row per UUID: a
+// session is written once when it starts (no `to`) and again when it's
+// closed, and the last row for a UUID is its current state.
+func latestPerSession(rows []tasklog.Row) []tasklog.Row {
+	idx := make(map[string]int, len(rows))
+	var out []tasklog.Row
+	for _, r := range rows {
+		if i, ok := idx[r.UUID]; ok {
+			out[i] = r
+			continue
+		}
+		idx[r.UUID] = len(out)
+		out = append(out, r)
+	}
+	return out
+}
+
 func duration(r tasklog.Row, now time.Time) time.Duration {
 	if r.To == nil {
 		return now.Sub(r.From)
@@ -73,6 +90,8 @@ func Print(w io.Writer, dataDir string, man manifest.Manifest, slug string, now 
 	if err != nil {
 		return err
 	}
+
+	rows = latestPerSession(rows)
 
 	fmt.Fprintf(w, "Report: %s (%s)\n\n", project.Name, slug)
 
