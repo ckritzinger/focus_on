@@ -17,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupPanel()
         setupStatusItem()
+        observeSleepAndLock()
+        observeSigterm()
 
         // Auto-open task selection if no active task on first launch
         if store.currentTaskName == nil {
@@ -24,6 +26,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.showTaskSelection(completingPrevious: false)
             }
         }
+    }
+
+    /// Pauses the running task (closing row, completed=false, to=now) when the
+    /// lid closes / Mac sleeps or the screen locks. Deliberately no auto-resume
+    /// on wake/unlock, and no recovery if an event is missed: a task still
+    /// showing as running afterwards is a visible, hand-fixable CSV edit.
+    private func observeSleepAndLock() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.store.pauseCurrentTask() }
+        }
+        // Undocumented but long-stable notification name.
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.store.pauseCurrentTask() }
+        }
+    }
+
+    private var sigtermSource: DispatchSourceSignal?
+
+    /// A plain `kill <pid>` (SIGTERM) bypasses applicationWillTerminate, so
+    /// route it through NSApp.terminate to get the closing row written.
+    /// SIGKILL / force quit can't be caught.
+    private func observeSigterm() {
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler { NSApp.terminate(nil) }
+        source.resume()
+        sigtermSource = source
     }
 
     func applicationWillTerminate(_ notification: Notification) {
