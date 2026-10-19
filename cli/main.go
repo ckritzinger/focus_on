@@ -22,6 +22,7 @@ import (
 	"github.com/ckritzinger/focus_on/cli/internal/invoicing"
 	"github.com/ckritzinger/focus_on/cli/internal/manifest"
 	"github.com/ckritzinger/focus_on/cli/internal/pdfgen"
+	"github.com/ckritzinger/focus_on/cli/internal/report"
 	"github.com/ckritzinger/focus_on/cli/internal/tasklog"
 	"github.com/ckritzinger/focus_on/cli/internal/tui"
 )
@@ -72,8 +73,10 @@ func run(args []string) error {
 		return runInvoice(cfg.DataDir, args[1:])
 	case "log":
 		return runLog(cfg.DataDir, args[1:])
+	case "report":
+		return runReport(cfg.DataDir, args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (try: log, sync, invoice generate, invoice set-last, cron install, cron uninstall)", args[0])
+		return fmt.Errorf("unknown command %q (try: log, report, sync, invoice generate, invoice set-last, cron install, cron uninstall)", args[0])
 	}
 }
 
@@ -121,6 +124,24 @@ func runLog(dataDir string, args []string) error {
 	}
 	fmt.Printf("logged %s: %s -> %s  %q\n", *project, fromT.Format("2006-01-02 15:04"), toT.Format("15:04"), *task)
 	return nil
+}
+
+// runReport prints a project summary: weekly hours, uninvoiced work, and
+// the last two weeks' tasks (internal/report).
+func runReport(dataDir string, args []string) error {
+	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	project := fs.String("project", "", "project slug (required)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *project == "" {
+		return fmt.Errorf("--project is required")
+	}
+	man, err := manifest.Load(dataDir)
+	if err != nil {
+		return err
+	}
+	return report.Print(os.Stdout, dataDir, man, *project, time.Now())
 }
 
 func runSync(dataDir string) error {
