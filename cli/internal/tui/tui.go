@@ -37,6 +37,9 @@ const (
 	screenInvoiceRecon
 	screenLogProjectPicker
 	screenLogForm
+	screenExpenseProjectPicker
+	screenExpensesList
+	screenExpenseForm
 	screenSync
 	screenPlaceholder
 )
@@ -48,7 +51,7 @@ var (
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 )
 
-var menuItems = []string{"Business", "Clients", "Projects", "Invoices", "Log Time", "Sync", "Quit"}
+var menuItems = []string{"Business", "Clients", "Projects", "Invoices", "Expenses", "Log Time", "Sync", "Quit"}
 
 const addNewLabel = "+ Add new"
 
@@ -95,6 +98,14 @@ type Model struct {
 	logProjectCursor int
 	logProject       string
 	logForm          form
+
+	expenseProjectSlugs  []string
+	expenseProjectCursor int
+	expenseProject       string
+	expenseList          []invoicing.Expense
+	expenseListErr       error
+	expenseCursor        int
+	expenseForm          form
 
 	syncStatusLines []string
 	syncErr         error
@@ -166,6 +177,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateLogProjectPicker(msg)
 		case screenLogForm:
 			return m.updateLogForm(msg)
+		case screenExpenseProjectPicker:
+			return m.updateExpenseProjectPicker(msg)
+		case screenExpensesList:
+			return m.updateExpensesList(msg)
+		case screenExpenseForm:
+			return m.updateExpenseForm(msg)
 		case screenSync:
 			return m.updateSync(msg)
 		case screenPlaceholder:
@@ -229,6 +246,8 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.enterProjectsList()
 		case "Invoices":
 			return m.enterInvoicesList()
+		case "Expenses":
+			return m.enterExpenseProjectPicker()
 		case "Log Time":
 			return m.enterLogProjectPicker()
 		case "Sync":
@@ -296,6 +315,12 @@ func (m Model) View() string {
 		return m.viewLogProjectPicker()
 	case screenLogForm:
 		return m.logForm.View()
+	case screenExpenseProjectPicker:
+		return m.viewExpenseProjectPicker()
+	case screenExpensesList:
+		return m.viewExpensesList()
+	case screenExpenseForm:
+		return m.expenseForm.View()
 	case screenSync:
 		return m.viewSync()
 	case screenPlaceholder:

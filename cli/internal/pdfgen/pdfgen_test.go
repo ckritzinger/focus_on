@@ -200,3 +200,38 @@ func TestRenderHandlesEmptyOptionalFields(t *testing.T) {
 		t.Fatalf("Render with empty business/client: %v", err)
 	}
 }
+
+func TestRenderWithExpenses(t *testing.T) {
+	expenses := []invoicing.Expense{
+		{UUID: "e1", Date: "2026-10-31", Description: "OpenRouter API usage, October", Amount: 1234.56, OriginalAmount: 67.89, OriginalCurrency: "USD"},
+		{UUID: "e2", Date: "2026-11-02", Description: "Disbursement", Amount: 50, NoVAT: true},
+	}
+	withTime := invoicing.Invoice{
+		Number:           "INV-0050",
+		GeneratedAt:      time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC),
+		Currency:         "ZAR",
+		Rate:             100,
+		VATPercent:       15,
+		TotalHours:       2,
+		TimeSubtotal:     200,
+		ExpensesSubtotal: 1284.56,
+		Subtotal:         1484.56,
+		VATAmount:        215.18,
+		TotalAmount:      1699.74,
+		LineItems: []invoicing.LineItem{
+			{UUID: "aaa", Task: "Work", From: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC), To: time.Date(2026, 11, 1, 11, 0, 0, 0, time.UTC), Hours: 2},
+		},
+		Expenses: expenses,
+	}
+	if err := Render(withTime, manifest.Business{Name: "X"}, manifest.Client{Name: "Y"}, filepath.Join(t.TempDir(), "with-time.pdf")); err != nil {
+		t.Fatalf("Render with time + expenses: %v", err)
+	}
+
+	expenseOnly := withTime
+	expenseOnly.LineItems = nil
+	expenseOnly.TotalHours = 0
+	expenseOnly.TimeSubtotal = 0
+	if err := Render(expenseOnly, manifest.Business{Name: "X"}, manifest.Client{Name: "Y"}, filepath.Join(t.TempDir(), "expense-only.pdf")); err != nil {
+		t.Fatalf("Render expense-only: %v", err)
+	}
+}

@@ -70,17 +70,21 @@ On first launch with no active task, the task picker opens automatically — pic
 
 ## `focuson` CLI usage
 
-Run `focuson` with no arguments for the interactive menu: **Business**, **Clients**, **Projects**, **Invoices**, **Sync**. Everything below is also available as flags for scripting:
+Run `focuson` with no arguments for the interactive menu: **Business**, **Clients**, **Projects**, **Invoices**, **Expenses**, **Log Time**, **Sync**. Everything below is also available as flags for scripting:
 
 ```bash
 focuson invoice generate --project acme-website [--from 2026-09-01] [--to 2026-09-30] [--dry-run]
 focuson invoice set-last --number 41 --note "Baseline import"
+focuson expense add --project acme-website --desc "OpenRouter, October" --amount 1234.56 [--date 2026-10-31] [--original "67.89 USD"] [--no-vat] [--receipt path]
+focuson expense list --project acme-website
 focuson sync
 focuson cron install [--time 18:00]
 focuson cron uninstall
 ```
 
 `--dry-run` previews line items and totals without writing anything — the same review step the TUI shows before you confirm a real generate.
+
+Expenses are reimbursable costs (e.g. API usage a client pays you back for). Enter them in the client's currency, ex VAT; `--original` is printed for reference only. The next invoice for the project picks up every unbilled expense, in its own table under the time entries. An invoice can be expenses only. To fix a typo in an expense that hasn't been billed yet, edit `projects/<slug>/expense_log.csv` by hand.
 
 ## Data directory layout
 
@@ -90,7 +94,8 @@ focuson cron uninstall
 ├── projects/
 │   └── <project-slug>/
 │       ├── task_log.csv         # append-only, widget-owned
-│       └── invoiced.csv         # append-only, CLI-owned — which sessions were billed on which invoice
+│       ├── expense_log.csv      # append-only, CLI-owned — reimbursable costs (optional)
+│       └── invoiced.csv         # append-only, CLI-owned — which sessions/expenses were billed on which invoice
 └── invoices/
     ├── INV-0042.toml            # frozen invoice record
     └── INV-0042.pdf

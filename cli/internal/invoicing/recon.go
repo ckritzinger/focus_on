@@ -21,13 +21,14 @@ type ReconIssue struct {
 // Recon runs two cheap sanity checks across every billable project (see
 // spec_v2.md, "Double-billing prevention"):
 //
-//   - duplicate: the same task_log.csv UUID billed by more than one invoice.
-//     Should be structurally impossible given how Commit works, but it's a
-//     one-line query and free insurance against a hand-edited invoiced.csv.
-//   - stale: a closed, billable-length row older than staleAfter with no
-//     invoiced.csv entry at all — the omission failure mode a pure
-//     timestamp-cursor design would be prone to (see the "backdated entry"
-//     discussion in spec_v2.md).
+//   - duplicate: the same task_log.csv or expense_log.csv UUID billed by
+//     more than one invoice. Should be structurally impossible given how
+//     Commit works, but it's a one-line query and free insurance against a
+//     hand-edited invoiced.csv.
+//   - stale: a closed, billable-length row (or an expense_log.csv expense)
+//     older than staleAfter with no invoiced.csv entry at all — the omission
+//     failure mode a pure timestamp-cursor design would be prone to (see the
+//     "backdated entry" discussion in spec_v2.md).
 func Recon(dataDir string, man manifest.Manifest, staleAfter time.Duration) ([]ReconIssue, error) {
 	var issues []ReconIssue
 	cutoff := time.Now().Add(-staleAfter)
@@ -81,6 +82,27 @@ func Recon(dataDir string, man manifest.Manifest, staleAfter time.Duration) ([]R
 				UUID:    r.UUID,
 				Task:    r.Task,
 				Detail:  fmt.Sprintf("closed %s, never invoiced", r.To.Format("2006-01-02")),
+			})
+		}
+
+		expenses, err := ReadExpenses(dataDir, p.Slug)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range expenses {
+			if billed[e.UUID] {
+				continue
+			}
+			d, err := time.ParseInLocation(ExpenseDateFormat, e.Date, time.Local)
+			if err != nil || d.After(cutoff) {
+				continue
+			}
+			issues = append(issues, ReconIssue{
+				Kind:    "stale",
+				Project: p.Slug,
+				UUID:    e.UUID,
+				Task:    "expense: " + e.Description,
+				Detail:  fmt.Sprintf("dated %s, never invoiced", e.Date),
 			})
 		}
 	}

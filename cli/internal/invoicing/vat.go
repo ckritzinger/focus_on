@@ -25,3 +25,21 @@ func VATBreakdown(quantity, rate, vatPercent float64, rateIncludesVAT bool) (sub
 	total = roundMoney(subtotal + vat)
 	return subtotal, vat, total
 }
+
+// ExpensesVAT splits expenses into ex-VAT subtotal and VAT. Expense amounts
+// are always ex-VAT (regardless of the client's rate_includes_vat); VAT is
+// added on top at vatPercent except for NoVAT disbursements.
+func ExpensesVAT(expenses []Expense, vatPercent float64) (subtotal, vat float64) {
+	var vatable float64
+	for _, e := range expenses {
+		subtotal += e.Amount
+		if !e.NoVAT {
+			vatable += e.Amount
+		}
+	}
+	subtotal = roundMoney(subtotal)
+	if vatPercent > 0 {
+		vat = roundMoney(vatable * vatPercent / 100)
+	}
+	return subtotal, vat
+}

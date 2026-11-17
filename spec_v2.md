@@ -43,6 +43,7 @@ Both components read/write the same **data directory**, which is its own git rep
 │   │   └── invoiced.csv
 │   ├── acme-website/
 │   │   ├── task_log.csv
+│   │   ├── expense_log.csv            # optional — reimbursable costs, see below
 │   │   └── invoiced.csv
 │   └── <project-slug>/
 │       ├── task_log.csv
@@ -55,7 +56,7 @@ Both components read/write the same **data directory**, which is its own git rep
 
 - The directory location is user-chosen (see Widget Changes) and stored once; nothing hardcodes `~/focuson-data`.
 - Each project gets its own subdirectory under `projects/`, named by its slug. The log file inside is **always** named `task_log.csv` — no per-project filename configuration. This leaves room to put other project-scoped files (e.g. exported reports) alongside it later without a renaming scheme.
-- `manifest.toml` and `invoices/*.toml` are the only files the CLI writes to directly, plus `task_log.csv` via `focuson log` (see "CLI manual entry" below). The widget only ever appends to a `task_log.csv` and only ever reads `manifest.toml` (never writes it).
+- `manifest.toml`, `invoices/*.toml`, and `expense_log.csv` are the only files the CLI writes to directly, plus `task_log.csv` via `focuson log` (see "CLI manual entry" below). The widget only ever appends to a `task_log.csv` and only ever reads `manifest.toml` (never writes it).
 
 ---
 
@@ -122,9 +123,31 @@ An append-only map from task-log UUID to the invoice that billed it. Written **o
 
 | Column | Type | Notes |
 |---|---|---|
-| `uuid` | String | Matches a `task_log.csv` row's `uuid`. |
+| `uuid` | String | Matches a `task_log.csv` or `expense_log.csv` row's `uuid` — both share this one billing record per project. |
 | `invoice_number` | String | e.g. `INV-0042`. |
 | `invoiced_at` | ISO 8601 datetime | When the invoice was generated. |
+
+---
+
+## `expense_log.csv` (per project, optional)
+
+```
+uuid,date,description,amount,original_amount,original_currency,no_vat,receipt
+```
+
+Reimbursable costs incurred on the client's behalf (e.g. OpenRouter usage a client reimburses). Written **only** by the CLI (`focuson expense add` / TUI "Expenses"), append-only like `task_log.csv` — fixing a typo in a not-yet-billed expense means editing the file by hand. The widget never sees it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `uuid` | String | Lowercase UUIDv4. Billed via the same `invoiced.csv` as time. |
+| `date` | `YYYY-MM-DD` | Date on the receipt. `--from`/`--to` filter on this. |
+| `description` | String | Printed on the invoice. |
+| `amount` | Number | In the client's currency, **always ex-VAT** (even for `rate_includes_vat` clients). Must be > 0 — no credits/refunds. |
+| `original_amount` / `original_currency` | Number / String | Optional reference (e.g. `67.89`,`USD`), printed next to the description. Never converted. |
+| `no_vat` | `true`/`false` | `true` = pure disbursement, no VAT added. Otherwise the client's `vat_percent` is added on top. |
+| `receipt` | String | Optional path to the receipt, reference only — not attached to the PDF. |
+
+No markup on expenses. The next invoice for the project picks up every unbilled expense (within the date range, if one is given); an invoice may consist of expenses only.
 
 ---
 
@@ -192,7 +215,17 @@ task = "Homepage redesign"
 from = "2026-08-03T09:00:00Z"
 to = "2026-08-03T11:30:00Z"
 hours = 2.5
+
+[[expense]]                         # only present when expenses were billed
+uuid = "9d2e..."
+date = "2026-08-31"
+description = "OpenRouter API usage, August"
+amount = 1234.56
+original_amount = 67.89
+original_currency = "USD"
 ```
+
+When expenses are present, `time_subtotal` and `expenses_subtotal` (both ex-VAT) are also written; `subtotal`, `vat_amount`, and `total_amount` are always the combined figures.
 
 ### Invoice numbering & baseline
 
@@ -233,15 +266,15 @@ TUI: Invoices → generate new. Flag equivalent: `focuson invoice generate --pro
 
 1. Resolve the project (and its client, rate, currency) from `manifest.toml`.
 2. Run the anti-join from "Double-billing prevention" against `task_log.csv` + `invoiced.csv` (`internal/invoicing.Preview`), optionally bounded by `--from`/`--to` (default: no explicit bound — the anti-join against `invoiced.csv` already excludes everything previously billed). Result comes back as plain Go structs — nothing further to exclude.
-3. Compute `hours = to - from` per row, `total_hours`, `total_amount = total_hours * rate`.
+3. Compute `hours = to - from` per row, `total_hours`, time amount `= total_hours * rate`. Add unbilled `expense_log.csv` rows (same anti-join, same date bound on `date`); VAT on expenses is added on top of their ex-VAT amount unless `no_vat`.
 4. Render line items **one per raw task entry** (no daily rollup — matches actual usage, not a lot of task-switching).
 5. **Dry-run**: print the would-be line items + totals to stdout. No files written, no counter bumped, no `invoiced.csv` rows written.
-6. **Real run**: write `invoices/INV-000N.toml` (full line-item snapshot — see below), render `invoices/INV-000N.pdf` (pure-Go PDF lib — `gofpdf` or `maroto`, no external binary dependency), append one row per billed UUID to `invoiced.csv` (`uuid,INV-000N,now`), bump `last_invoiced_at` on the project.
+6. **Real run**: write `invoices/INV-000N.toml` (full line-item + expense snapshot — see below), render `invoices/INV-000N.pdf` (pure-Go PDF lib — `gofpdf` or `maroto`, no external binary dependency), append one row per billed UUID (time and expenses alike) to `invoiced.csv` (`uuid,INV-000N,now`), bump `last_invoiced_at` on the project.
 7. Nothing is committed to git automatically — run `focuson sync` afterward.
 
 One invoice always covers exactly one project. A client with multiple projects gets one invoice per project, run separately.
 
-Invoice PDF contents: `[business]` header (name/address/email/registration number/VAT note/payment terms), client billing info, invoice number + date + period, line-item table (task, from, to, hours), total hours and amount, payment details footer. Exact visual layout is an implementation detail, not specified further here.
+Invoice PDF contents: `[business]` header (name/address/email/registration number/VAT note/payment terms), client billing info, invoice number + date + period, line-item table (task, from, to, hours) — omitted when there's no time, a separate "Expenses" table (date, description + original amount, amount) when there are expenses, time/expenses subtotals, VAT, total, payment details footer. Exact visual layout is an implementation detail, not specified further here.
 
 ---
 
@@ -260,6 +293,8 @@ FocusOn
     Clients
     Projects
     Invoices
+    Expenses
+    Log Time
     Sync
     Quit
 ```
@@ -268,6 +303,7 @@ FocusOn
 - **Clients** — list existing clients (name, currency, rate); "add new" opens a form (name, currency, rate, address, contact email); select one to edit.
 - **Projects** — list existing projects (name, client, effective rate); "add new" opens a form (name, slug, client picker, rate override); select one to edit.
 - **Invoices** — list existing invoices (number, project, period, total) newest first; "generate new" walks: pick project → optional date range (blank = everything unbilled) → shows computed line items + total for review *before* anything is written (this review step **is** the dry-run — no separate mode to remember) → confirm to commit (writes ledger + PDF, appends to `invoiced.csv`, bumps counter) or back out with nothing touched; "set starting number" prompts for N and a note, writes the placeholder invoice (Harvest continuity); "check consistency" runs the dup/staleness recon queries and shows any hits.
+- **Expenses** — pick a billable project → list its unbilled expenses with a running total; "add expense" opens a form (date, description, amount, optional original amount like `67.89 USD`, no-VAT y/n, optional receipt path). No edit/delete — hand-edit `expense_log.csv`.
 - **Sync** — shows `git status`-style summary of what changed in the data directory, confirm to stage and commit, then push to `origin` if that remote is configured (pushes even on a clean tree, in case an earlier commit is sitting unpushed — see Phase 9). Push failure is never fatal — a local commit is real durability on its own.
 
 Each screen has its own escape/back key to return to the main menu without side effects.
@@ -280,6 +316,8 @@ The same actions are available non-interactively for automation (e.g. a cron job
 |---|---|
 | `focuson invoice generate --project <slug> [--from] [--to] [--dry-run]` | Same as "generate new" (`--dry-run` = review-only, matching the TUI's review step). |
 | `focuson invoice set-last --number <N> [--note "..."]` | Same as "set starting number". |
+| `focuson expense add --project <slug> --desc "..." --amount <N> [--date YYYY-MM-DD] [--original "67.89 USD"] [--no-vat] [--receipt <path>]` | Same as "add expense". Date defaults to today. |
+| `focuson expense list --project <slug>` | Unbilled expenses for a project. |
 | `focuson sync` | Same as the "Sync" screen, no confirmation prompt (assumes non-interactive use). |
 
 `focuson status` (unbilled hours summary per project, e.g. for a cron reminder) is a plausible future addition, reachable either way, but not required for v1 of this spec.
@@ -343,6 +381,7 @@ The SwiftUI past-session entry (above) was flaky enough in practice that it's al
 - No invoice editing/voiding UI — fixing a bad invoice means deleting its `invoices/INV-000N.toml` (and `.pdf`) by hand and re-running generation; the next-number calculation naturally reuses that slot since it's just `max(existing) + 1`.
 - No automatic git commits anywhere — `focuson sync` is always explicit.
 - No multi-project invoices, no partial/split invoicing within a project.
+- Expenses: no markup, no credits/negative amounts, no currency conversion, no receipt attachment, no edit/delete UI, not shown in `focuson report`.
 
 ---
 

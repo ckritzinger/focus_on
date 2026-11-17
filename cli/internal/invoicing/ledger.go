@@ -28,25 +28,28 @@ type LineItem struct {
 // for humans and PDF rendering. It is never consulted for double-billing
 // decisions — invoiced.csv is (see invoiced.go).
 type Invoice struct {
-	Number          string     `toml:"number"`
-	Project         string     `toml:"project,omitempty"`
-	Client          string     `toml:"client,omitempty"`
-	GeneratedAt     time.Time  `toml:"generated_at"`
-	PeriodFrom      string     `toml:"period_from,omitempty"` // RFC3339; blank = unbounded
-	PeriodTo        string     `toml:"period_to,omitempty"`
-	Currency        string     `toml:"currency,omitempty"`
-	Rate            float64    `toml:"rate,omitempty"`
-	RateIncludesVAT bool       `toml:"rate_includes_vat,omitempty"`
-	QuantityUnit    string     `toml:"quantity_unit,omitempty"` // "hour" or "day"; TotalHours is in this unit
-	VATPercent      float64    `toml:"vat_percent,omitempty"`
-	Subtotal        float64    `toml:"subtotal,omitempty"` // ex VAT
-	VATAmount       float64    `toml:"vat_amount,omitempty"`
-	TotalHours      float64    `toml:"total_hours,omitempty"`  // billed qty (hours or days)
-	TotalAmount     float64    `toml:"total_amount,omitempty"` // amount due, VAT-inclusive if VAT applies
-	PDFPath         string     `toml:"pdf_path,omitempty"`
-	Placeholder     bool       `toml:"placeholder"`
-	Note            string     `toml:"note,omitempty"`
-	LineItems       []LineItem `toml:"line_item,omitempty"`
+	Number           string     `toml:"number"`
+	Project          string     `toml:"project,omitempty"`
+	Client           string     `toml:"client,omitempty"`
+	GeneratedAt      time.Time  `toml:"generated_at"`
+	PeriodFrom       string     `toml:"period_from,omitempty"` // RFC3339; blank = unbounded
+	PeriodTo         string     `toml:"period_to,omitempty"`
+	Currency         string     `toml:"currency,omitempty"`
+	Rate             float64    `toml:"rate,omitempty"`
+	RateIncludesVAT  bool       `toml:"rate_includes_vat,omitempty"`
+	QuantityUnit     string     `toml:"quantity_unit,omitempty"` // "hour" or "day"; TotalHours is in this unit
+	VATPercent       float64    `toml:"vat_percent,omitempty"`
+	Subtotal         float64    `toml:"subtotal,omitempty"`          // ex VAT, time + expenses
+	TimeSubtotal     float64    `toml:"time_subtotal,omitempty"`     // ex VAT
+	ExpensesSubtotal float64    `toml:"expenses_subtotal,omitempty"` // ex VAT
+	VATAmount        float64    `toml:"vat_amount,omitempty"`
+	TotalHours       float64    `toml:"total_hours,omitempty"`  // billed qty (hours or days)
+	TotalAmount      float64    `toml:"total_amount,omitempty"` // amount due, VAT-inclusive if VAT applies
+	PDFPath          string     `toml:"pdf_path,omitempty"`
+	Placeholder      bool       `toml:"placeholder"`
+	Note             string     `toml:"note,omitempty"`
+	LineItems        []LineItem `toml:"line_item,omitempty"`
+	Expenses         []Expense  `toml:"expense,omitempty"`
 }
 
 func invoicesDir(dataDir string) string {

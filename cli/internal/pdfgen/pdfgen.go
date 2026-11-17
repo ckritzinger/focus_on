@@ -63,7 +63,12 @@ func RenderIn(inv invoicing.Invoice, business manifest.Business, client manifest
 
 	r.header(inv, business)
 	r.billTo(client)
-	r.lineItems(inv)
+	if len(inv.LineItems) > 0 {
+		r.lineItems(inv)
+	}
+	if len(inv.Expenses) > 0 {
+		r.expenses(inv)
+	}
 	r.totals(inv)
 	r.paymentDetails(business)
 
@@ -255,6 +260,42 @@ func (r renderer) lineItems(inv invoicing.Invoice) {
 	pdf.Ln(4)
 }
 
+// expenses is the reimbursable-costs table, separate from time so the
+// client's accounts team can see at a glance what's labour and what's a
+// pass-through cost (spec_v2.md, "expense_log.csv").
+func (r renderer) expenses(inv invoicing.Invoice) {
+	pdf := r.pdf
+	descColW := usableW - colDateW - colAmountW
+
+	pdf.SetFont("Helvetica", "B", 10)
+	r.cellLn(usableW, 6, "Expenses", "L", false)
+
+	pdf.SetFont("Helvetica", "B", 9)
+	pdf.SetFillColor(235, 235, 235)
+	r.borderedCell(colDateW, 7, "Date", "L", true, 0)
+	r.borderedCell(descColW, 7, "Description", "L", true, 0)
+	r.borderedCell(colAmountW, 7, "Amount", "R", true, 1)
+
+	pdf.SetFont("Helvetica", "", 9)
+	for _, e := range inv.Expenses {
+		r.borderedCell(colDateW, 6, e.Date, "L", false, 0)
+		r.borderedCell(descColW, 6, r.truncate(expenseLabel(inv, e), descColW-2), "L", false, 0)
+		r.borderedCell(colAmountW, 6, fmt.Sprintf("%.2f", e.Amount), "R", false, 1)
+	}
+	pdf.Ln(4)
+}
+
+func expenseLabel(inv invoicing.Invoice, e invoicing.Expense) string {
+	label := e.Description
+	if orig := e.OriginalLabel(); orig != "" {
+		label += " (" + orig + ")"
+	}
+	if e.NoVAT && inv.VATPercent > 0 {
+		label += " - no VAT"
+	}
+	return label
+}
+
 func qtyHeader(inv invoicing.Invoice) string {
 	if inv.QuantityUnit == "day" {
 		return "Days"
@@ -279,8 +320,22 @@ func (r renderer) totals(inv invoicing.Invoice) {
 	}
 
 	pdf.SetFont("Helvetica", "", 10)
-	r.cell(labelW, 6, fmt.Sprintf("Total %s (at %.2f %s/%s%s)", strings.ToLower(qtyHeader(inv)), inv.Rate, inv.Currency, unit, rateNote), "R", false)
-	r.cellLn(colAmountW, 6, fmt.Sprintf("%.2f", inv.TotalHours), "R", false)
+	if len(inv.LineItems) > 0 {
+		r.cell(labelW, 6, fmt.Sprintf("Total %s (at %.2f %s/%s%s)", strings.ToLower(qtyHeader(inv)), inv.Rate, inv.Currency, unit, rateNote), "R", false)
+		r.cellLn(colAmountW, 6, fmt.Sprintf("%.2f", inv.TotalHours), "R", false)
+	}
+	if len(inv.Expenses) > 0 {
+		exVAT := ""
+		if inv.VATPercent > 0 {
+			exVAT = " ex VAT"
+		}
+		if len(inv.LineItems) > 0 {
+			r.cell(labelW, 6, "Time"+exVAT, "R", false)
+			r.cellLn(colAmountW, 6, fmt.Sprintf("%.2f", inv.TimeSubtotal), "R", false)
+		}
+		r.cell(labelW, 6, "Expenses"+exVAT, "R", false)
+		r.cellLn(colAmountW, 6, fmt.Sprintf("%.2f", inv.ExpensesSubtotal), "R", false)
+	}
 
 	if inv.VATPercent > 0 {
 		r.cell(labelW, 6, "Subtotal ex VAT", "R", false)
