@@ -84,21 +84,41 @@ func Preview(dataDir string, man manifest.Manifest, opts Options) (Invoice, erro
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].From.Before(items[j].From) })
 
-	subtotal, vatAmount, total := VATBreakdown(totalHours, rate, client.VATPercent, client.RateIncludesVAT)
+	allExpenses, err := ReadExpenses(dataDir, opts.ProjectSlug)
+	if err != nil {
+		return Invoice{}, err
+	}
+	var expenses []Expense
+	for _, e := range allExpenses {
+		if billed[e.UUID] || !expenseInRange(e, opts.From, opts.To) {
+			continue
+		}
+		expenses = append(expenses, e)
+	}
+	sort.SliceStable(expenses, func(i, j int) bool { return expenses[i].Date < expenses[j].Date })
+
+	timeSubtotal, timeVAT, timeTotal := VATBreakdown(totalHours, rate, client.VATPercent, client.RateIncludesVAT)
+	expSubtotal, expVAT := ExpensesVAT(expenses, client.VATPercent)
+	subtotal := roundMoney(timeSubtotal + expSubtotal)
+	vatAmount := roundMoney(timeVAT + expVAT)
+	total := roundMoney(timeTotal + expSubtotal + expVAT)
 	inv := Invoice{
-		Project:         opts.ProjectSlug,
-		Client:          project.Client,
-		GeneratedAt:     time.Now(),
-		Currency:        client.Currency,
-		Rate:            rate,
-		RateIncludesVAT: client.RateIncludesVAT,
-		QuantityUnit:    billing.Unit,
-		VATPercent:      client.VATPercent,
-		Subtotal:        subtotal,
-		VATAmount:       vatAmount,
-		TotalHours:      totalHours,
-		TotalAmount:     total,
-		LineItems:       items,
+		Project:          opts.ProjectSlug,
+		Client:           project.Client,
+		GeneratedAt:      time.Now(),
+		Currency:         client.Currency,
+		Rate:             rate,
+		RateIncludesVAT:  client.RateIncludesVAT,
+		QuantityUnit:     billing.Unit,
+		VATPercent:       client.VATPercent,
+		Subtotal:         subtotal,
+		TimeSubtotal:     timeSubtotal,
+		ExpensesSubtotal: expSubtotal,
+		VATAmount:        vatAmount,
+		TotalHours:       totalHours,
+		TotalAmount:      total,
+		LineItems:        items,
+		Expenses:         expenses,
 	}
 	if opts.From != nil {
 		inv.PeriodFrom = opts.From.Format(time.RFC3339)
@@ -119,7 +139,7 @@ func Commit(dataDir string, man manifest.Manifest, opts Options) (Invoice, error
 	if err != nil {
 		return Invoice{}, err
 	}
-	if len(inv.LineItems) == 0 {
+	if len(inv.LineItems) == 0 && len(inv.Expenses) == 0 {
 		return Invoice{}, fmt.Errorf("nothing unbilled for project %q in that range", opts.ProjectSlug)
 	}
 
@@ -141,9 +161,14 @@ func Commit(dataDir string, man manifest.Manifest, opts Options) (Invoice, error
 		return Invoice{}, err
 	}
 
-	rows := make([]InvoicedRow, len(inv.LineItems))
-	for i, li := range inv.LineItems {
-		rows[i] = InvoicedRow{UUID: li.UUID, InvoiceNumber: inv.Number, InvoicedAt: inv.GeneratedAt}
+	// Expense UUIDs share invoiced.csv with task-log UUIDs — one billing
+	// record per project, so dup/omission recon covers both for free.
+	rows := make([]InvoicedRow, 0, len(inv.LineItems)+len(inv.Expenses))
+	for _, li := range inv.LineItems {
+		rows = append(rows, InvoicedRow{UUID: li.UUID, InvoiceNumber: inv.Number, InvoicedAt: inv.GeneratedAt})
+	}
+	for _, e := range inv.Expenses {
+		rows = append(rows, InvoicedRow{UUID: e.UUID, InvoiceNumber: inv.Number, InvoicedAt: inv.GeneratedAt})
 	}
 	if err := appendInvoiced(dataDir, opts.ProjectSlug, rows); err != nil {
 		return Invoice{}, err

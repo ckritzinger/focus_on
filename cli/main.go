@@ -75,8 +75,10 @@ func run(args []string) error {
 		return runLog(cfg.DataDir, args[1:])
 	case "report":
 		return runReport(cfg.DataDir, args[1:])
+	case "expense":
+		return runExpense(cfg.DataDir, args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (try: log, report, sync, invoice generate, invoice set-last, cron install, cron uninstall)", args[0])
+		return fmt.Errorf("unknown command %q (try: log, report, sync, expense add, expense list, invoice generate, invoice set-last, cron install, cron uninstall)", args[0])
 	}
 }
 
@@ -123,6 +125,96 @@ func runLog(dataDir string, args []string) error {
 		return err
 	}
 	fmt.Printf("logged %s: %s -> %s  %q\n", *project, fromT.Format("2006-01-02 15:04"), toT.Format("15:04"), *task)
+	return nil
+}
+
+// runExpense records reimbursable costs (expense_log.csv) for the next
+// invoice — the CLI counterpart to the TUI's "Expenses" screen.
+func runExpense(dataDir string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: focuson expense add|list ...")
+	}
+	switch args[0] {
+	case "add":
+		return runExpenseAdd(dataDir, args[1:])
+	case "list":
+		return runExpenseList(dataDir, args[1:])
+	default:
+		return fmt.Errorf("unknown expense command %q (try: add, list)", args[0])
+	}
+}
+
+func runExpenseAdd(dataDir string, args []string) error {
+	fs := flag.NewFlagSet("expense add", flag.ContinueOnError)
+	project := fs.String("project", "", "project slug (required)")
+	date := fs.String("date", "", "date on the receipt, YYYY-MM-DD (default: today)")
+	desc := fs.String("desc", "", "description shown on the invoice (required)")
+	amount := fs.Float64("amount", 0, "amount in the client's currency, ex VAT (required)")
+	original := fs.String("original", "", `original amount for reference, e.g. "67.89 USD" (printed, never converted)`)
+	noVAT := fs.Bool("no-vat", false, "pure disbursement — don't add VAT to this expense")
+	receipt := fs.String("receipt", "", "path to the receipt, for your reference only")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *project == "" || *desc == "" || *amount == 0 {
+		return fmt.Errorf("--project, --desc, and --amount are required")
+	}
+
+	man, err := manifest.Load(dataDir)
+	if err != nil {
+		return err
+	}
+	p, ok := man.FindProject(*project)
+	if !ok {
+		return fmt.Errorf("unknown project %q", *project)
+	}
+	if !p.Billable() {
+		return fmt.Errorf("project %q has no client — expenses would never be invoiced", *project)
+	}
+
+	if *date == "" {
+		*date = time.Now().Format(invoicing.ExpenseDateFormat)
+	}
+	origAmt, origCur, err := invoicing.ParseOriginal(*original)
+	if err != nil {
+		return fmt.Errorf("--original: %w", err)
+	}
+	e, err := invoicing.AddExpense(dataDir, *project, invoicing.Expense{
+		Date:             *date,
+		Description:      *desc,
+		Amount:           *amount,
+		OriginalAmount:   origAmt,
+		OriginalCurrency: origCur,
+		NoVAT:            *noVAT,
+		Receipt:          *receipt,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("recorded expense for %s: %s  %.2f  %q\n", *project, e.Date, e.Amount, e.Description)
+	return nil
+}
+
+func runExpenseList(dataDir string, args []string) error {
+	fs := flag.NewFlagSet("expense list", flag.ContinueOnError)
+	project := fs.String("project", "", "project slug (required)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *project == "" {
+		return fmt.Errorf("--project is required")
+	}
+	unbilled, err := invoicing.UnbilledExpenses(dataDir, *project)
+	if err != nil {
+		return err
+	}
+	if len(unbilled) == 0 {
+		fmt.Println("no unbilled expenses")
+		return nil
+	}
+	for _, e := range unbilled {
+		fmt.Println("  " + e.Summary())
+	}
 	return nil
 }
 
@@ -268,7 +360,19 @@ func printInvoicePreview(inv invoicing.Invoice) {
 	if inv.RateIncludesVAT && inv.VATPercent > 0 {
 		incl = " incl VAT"
 	}
-	fmt.Printf("%.2f %s x %.2f %s/%s%s\n", inv.TotalHours, qty, inv.Rate, inv.Currency, suffix, incl)
+	if len(inv.LineItems) > 0 {
+		fmt.Printf("%.2f %s x %.2f %s/%s%s\n", inv.TotalHours, qty, inv.Rate, inv.Currency, suffix, incl)
+	}
+	if len(inv.Expenses) > 0 {
+		fmt.Println("expenses:")
+		for _, e := range inv.Expenses {
+			fmt.Println("  " + e.Summary())
+		}
+		if len(inv.LineItems) > 0 {
+			fmt.Printf("time subtotal %.2f\n", inv.TimeSubtotal)
+		}
+		fmt.Printf("expenses subtotal %.2f\n", inv.ExpensesSubtotal)
+	}
 	if inv.VATPercent > 0 {
 		fmt.Printf("subtotal ex VAT %.2f\nVAT %.2f%% %.2f\ntotal due %.2f %s\n", inv.Subtotal, inv.VATPercent, inv.VATAmount, inv.TotalAmount, inv.Currency)
 	} else {

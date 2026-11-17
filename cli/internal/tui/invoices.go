@@ -41,15 +41,23 @@ func invoiceTotals(inv invoicing.Invoice) string {
 	if inv.RateIncludesVAT && inv.VATPercent > 0 {
 		incl = " incl VAT"
 	}
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%.2f %s × %.2f %s/%s%s", inv.TotalHours, unit, inv.Rate, inv.Currency, short, incl))
-	if inv.VATPercent > 0 {
-		b.WriteString(fmt.Sprintf("\nSubtotal ex VAT  %.2f\nVAT %.2f%%          %.2f\nTotal due        %.2f %s",
-			inv.Subtotal, inv.VATPercent, inv.VATAmount, inv.TotalAmount, inv.Currency))
-	} else {
-		b.WriteString(fmt.Sprintf(" = %.2f %s", inv.TotalAmount, inv.Currency))
+	var lines []string
+	if len(inv.LineItems) > 0 {
+		lines = append(lines, fmt.Sprintf("%.2f %s × %.2f %s/%s%s", inv.TotalHours, unit, inv.Rate, inv.Currency, short, incl))
 	}
-	return b.String()
+	if len(inv.Expenses) > 0 {
+		if len(inv.LineItems) > 0 {
+			lines = append(lines, fmt.Sprintf("Time subtotal    %.2f", inv.TimeSubtotal))
+		}
+		lines = append(lines, fmt.Sprintf("Expenses         %.2f", inv.ExpensesSubtotal))
+	}
+	if inv.VATPercent > 0 {
+		lines = append(lines,
+			fmt.Sprintf("Subtotal ex VAT  %.2f", inv.Subtotal),
+			fmt.Sprintf("VAT %.2f%%          %.2f", inv.VATPercent, inv.VATAmount))
+	}
+	lines = append(lines, fmt.Sprintf("Total due        %.2f %s", inv.TotalAmount, inv.Currency))
+	return strings.Join(lines, "\n")
 }
 
 // --- Invoices list -------------------------------------------------------
@@ -73,6 +81,9 @@ func (m Model) invoiceListItems() []string {
 	items := []string{invoiceActionGenerate, invoiceActionSetLast, invoiceActionRecon}
 	for _, inv := range m.invoiceList {
 		label := fmt.Sprintf("%s — %s — %.2f %s (%d item(s))", inv.Number, inv.Project, inv.TotalAmount, inv.Currency, len(inv.LineItems))
+		if n := len(inv.Expenses); n > 0 {
+			label = fmt.Sprintf("%s — %s — %.2f %s (%d item(s), %d expense(s))", inv.Number, inv.Project, inv.TotalAmount, inv.Currency, len(inv.LineItems), n)
+		}
 		if inv.Placeholder {
 			label = fmt.Sprintf("%s — placeholder (%s)", inv.Number, inv.Note)
 		}
@@ -296,7 +307,7 @@ func (m Model) viewInvoiceReview() string {
 	}
 
 	inv := m.invoicePreview
-	if len(inv.LineItems) == 0 {
+	if len(inv.LineItems) == 0 && len(inv.Expenses) == 0 {
 		b.WriteString("Nothing unbilled for this project.\n\n")
 		b.WriteString(dimStyle.Render("esc back"))
 		return b.String()
@@ -306,6 +317,12 @@ func (m Model) viewInvoiceReview() string {
 	for _, li := range inv.LineItems {
 		b.WriteString(fmt.Sprintf("  %s → %s  %5.2f%s  %s\n",
 			li.From.Format("2006-01-02 15:04"), li.To.Format("15:04"), li.Hours, unit[:1], li.Task))
+	}
+	if len(inv.Expenses) > 0 {
+		b.WriteString("\nExpenses:\n")
+		for _, e := range inv.Expenses {
+			b.WriteString("  " + e.Summary() + "\n")
+		}
 	}
 	b.WriteString("\n" + invoiceTotals(inv) + "\n")
 
@@ -404,6 +421,9 @@ func (m Model) viewInvoiceDetail() string {
 	}
 	b.WriteString(invoiceTotals(inv) + "\n")
 	b.WriteString(fmt.Sprintf("%d line item(s)\n", len(inv.LineItems)))
+	for _, e := range inv.Expenses {
+		b.WriteString("  expense: " + e.Summary() + "\n")
+	}
 	if inv.PDFPath != "" {
 		b.WriteString(fmt.Sprintf("PDF: %s\n", inv.PDFPath))
 	}
